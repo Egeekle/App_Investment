@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: investment_api
+    ports:
+      - "8000:8000"
+    environment:
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY}
+      - GOOGLE_AI_MODEL=${GOOGLE_AI_MODEL:-gemini-pro}
+      - ALPHA_VANTAGE_API_KEY=${ALPHA_VANTAGE_API_KEY}
+      - CHROMA_DB_PATH=/app/data/chroma_db
+      - MODEL_PATH=/app/models/random_forest_model.pkl
+      - MLFLOW_TRACKING_URI=/app/mlruns
+      - API_BASE_URL=http://api:8000
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./mlruns:/app/mlruns
+    command: python -m uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: investment_streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE_URL=http://api:8000
+    volumes:
+      - ./src:/app/src
+    command: streamlit run src/app/main.py --server.port 8501 --server.address 0.0.0.0
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Optional: ChromaDB as separate service (currently using embedded)
+  # chromadb:
+  #   image: chromadb/chroma:latest
+  #   container_name: investment_chromadb
+  #   ports:
+  #     - "8001:8000"
+  #   volumes:
+  #     - ./data/chroma_db:/chroma/chroma
+

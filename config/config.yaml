@@ -1,0 +1,61 @@
+# Application Configuration
+app:
+  name: "Asistente de Inversión Inteligente"
+  version: "1.0.0"
+  environment: ${ENVIRONMENT:-development}
+
+# Google AI Studio Configuration
+google_ai:
+  api_key: ${GOOGLE_AI_API_KEY}
+  model: ${GOOGLE_AI_MODEL:-gemini-pro}
+  temperature: 0.7
+  max_tokens: 2000
+
+# Data Sources
+data_sources:
+  coingecko:
+    base_url: "https://api.coingecko.com/api/v3"
+    timeout: 30
+  
+  alpha_vantage:
+    base_url: "https://www.alphavantage.co/query"
+    api_key: ${ALPHA_VANTAGE_API_KEY}
+    timeout: 30
+
+# RAG Configuration
+rag:
+  embedding_model: "models/embedding-001"
+  embedding_dimensions: 768
+  chroma_db_path: ${CHROMA_DB_PATH:-./data/chroma_db}
+  top_k: 5
+  similarity_threshold: 0.7
+
+# Market Analysis Configuration
+market_analysis:
+  default_lookback_days: 30
+  indicators:
+    rsi_period: 14
+    sma_short: 10
+    sma_long: 20
+  symbols:
+    crypto: ["bitcoin", "ethereum"]
+    etf: ["SPY", "QQQ", "VTI"]
+
+# ML Configuration
+ml:
+  model_path: "./models/random_forest_model.pkl"
+  mlflow_tracking_uri: ${MLFLOW_TRACKING_URI:-./mlruns}
+  experiment_name: "investment_assistant"
+
+# API Configuration
+api:
+  host: "0.0.0.0"
+  port: 8000
+  reload: true
+  workers: 4
+
+# Streamlit Configuration
+streamlit:
+  port: 8501
+  host: "0.0.0.0"
+
