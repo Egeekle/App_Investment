@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 import requests
-from typing import Dict, Any
+from typing import Dict, Any, List
 import os
 from dotenv import load_dotenv
 
@@ -51,187 +51,147 @@ def analyze_asset(symbol: str, query: str) -> Dict[str, Any]:
         st.error(f"Error analyzing asset: {e}")
         return {"error": str(e)}
 
+def fetch_portfolio() -> Dict[str, Any]:
+    try:
+        response = requests.get(f"{API_BASE_URL}/v1/portfolio", timeout=10)
+        return response.json()
+    except Exception as e:
+        return {"error": str(e)}
 
-def create_price_chart(df: pd.DataFrame, symbol: str) -> go.Figure:
-    """Create price chart with technical indicators"""
-    fig = go.Figure()
-    
-    # Price line
-    fig.add_trace(go.Scatter(
-        x=df["date"],
-        y=df["price"],
-        mode="lines",
-        name="Price",
-        line=dict(color="blue", width=2)
-    ))
-    
-    # SMAs if available
-    if "sma_10" in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df["date"],
-            y=df["sma_10"],
-            mode="lines",
-            name="SMA 10",
-            line=dict(color="orange", width=1, dash="dash")
-        ))
-    
-    if "sma_20" in df.columns:
-        fig.add_trace(go.Scatter(
-            x=df["date"],
-            y=df["sma_20"],
-            mode="lines",
-            name="SMA 20",
-            line=dict(color="red", width=1, dash="dash")
-        ))
-    
-    fig.update_layout(
-        title=f"{symbol} - Price Chart",
-        xaxis_title="Date",
-        yaxis_title="Price (USD)",
-        hovermode="x unified",
-        height=500
-    )
-    
-    return fig
+def add_asset_to_portfolio(symbol: str, quantity: float, price: float):
+    try:
+        requests.post(
+            f"{API_BASE_URL}/v1/portfolio/add", 
+            json={"symbol": symbol, "quantity": quantity, "purchase_price": price},
+            timeout=10
+        )
+        st.success(f"Added {quantity} {symbol} to portfolio.")
+    except Exception as e:
+        st.error(f"Error adding asset: {e}")
 
+def get_drift_report() -> Dict[str, Any]:
+    try:
+        response = requests.get(f"{API_BASE_URL}/v1/drift", timeout=10)
+        return response.json()
+    except Exception as e:
+        return {"error": str(e)}
 
-def create_rsi_chart(df: pd.DataFrame) -> go.Figure:
-    """Create RSI chart"""
-    if "rsi" not in df.columns:
-        return None
-    
-    fig = go.Figure()
-    
-    fig.add_trace(go.Scatter(
-        x=df["date"],
-        y=df["rsi"],
-        mode="lines",
-        name="RSI",
-        line=dict(color="purple", width=2)
-    ))
-    
-    # Add overbought/oversold lines
-    fig.add_hline(y=70, line_dash="dash", line_color="red", annotation_text="Overbought (70)")
-    fig.add_hline(y=30, line_dash="dash", line_color="green", annotation_text="Oversold (30)")
-    
-    fig.update_layout(
-        title="RSI Indicator",
-        xaxis_title="Date",
-        yaxis_title="RSI",
-        yaxis_range=[0, 100],
-        height=300
-    )
-    
-    return fig
-
+def refresh_news():
+    try:
+        requests.post(f"{API_BASE_URL}/v1/news/fetch", timeout=30)
+        st.success("News refreshed successfully!")
+    except Exception as e:
+        st.error(f"Error refreshing news: {e}")
 
 # Main UI
 st.title("📈 Asistente de Inversión Inteligente")
-st.markdown("Sistema de análisis financiero con IA Generativa y análisis técnico")
+st.markdown("Sistema de análisis financiero con IA Generativa, gestión de portafolio y monitoreo.")
 
-# Sidebar
-with st.sidebar:
-    st.header("Configuración")
+# Tabs
+tab1, tab2, tab3 = st.tabs(["📊 Análisis & Chat", "💼 Portafolio", "🛡️ Monitoreo Drift"])
+
+with tab1:
+    # Sidebar for Analysis
+    with st.expander("Configuración de Análisis", expanded=True):
+        col_s1, col_s2, col_s3 = st.columns(3)
+        with col_s1:
+            symbol = st.selectbox(
+                "Seleccionar Activo",
+                options=["BTC", "ETH", "SPY", "QQQ", "VTI", "bitcoin", "ethereum"],
+                index=0
+            )
+        with col_s2:
+            days = st.slider("Días de historial", min_value=7, max_value=90, value=30)
+        with col_s3:
+            if st.button("🔄 Actualizar Noticias"):
+                with st.spinner("Descargando noticias..."):
+                    refresh_news()
     
-    # Symbol selection
-    symbol = st.selectbox(
-        "Seleccionar Activo",
-        options=["BTC", "ETH", "SPY", "QQQ", "VTI", "bitcoin", "ethereum"],
-        index=0
-    )
-    
-    # Days selection
-    days = st.slider("Días de historial", min_value=7, max_value=90, value=30)
-    
-    # Query input
     query = st.text_area(
-        "Consulta",
-        value="¿Cuál es el análisis técnico y la recomendación de inversión?",
+        "Consulta al Asistente",
+        value="¿Cuál es el análisis técnico y la recomendación de inversión? Ten en cuenta mi portafolio si aplica.",
         height=100
     )
     
-    # Analyze button
-    analyze_button = st.button("🔍 Analizar", type="primary", use_container_width=True)
-
-# Main content
-if analyze_button:
-    with st.spinner("Analizando activo..."):
-        # Fetch market data
-        market_data = fetch_market_data(symbol, days)
+    if st.button("🔍 Analizar", type="primary"):
+        with st.spinner("Analizando activo..."):
+            market_data = fetch_market_data(symbol, days)
+            analysis_result = analyze_asset(symbol, query)
         
-        # Analyze asset
-        analysis_result = analyze_asset(symbol, query)
-    
-    if "error" not in analysis_result:
-        # Display analysis
-        st.header("📊 Análisis del Activo")
-        
-        # Market data metrics
-        if market_data:
-            col1, col2, col3, col4 = st.columns(4)
+        if "error" not in analysis_result:
+            st.header("📊 Resultado del Análisis")
             
-            with col1:
-                st.metric("Precio Actual", f"${market_data.get('price', 0):.2f}")
-            
-            with col2:
+            # Market Metrics
+            if market_data:
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Precio Actual", f"${market_data.get('price', 0):.2f}")
                 rsi = market_data.get("rsi", 0)
-                rsi_color = "normal" if 30 <= rsi <= 70 else "inverse"
-                st.metric("RSI", f"{rsi:.2f}", delta=None)
+                col2.metric("RSI", f"{rsi:.2f}")
+                col3.metric("SMA 10", f"${market_data.get('sma_10', 0):.2f}")
+                col4.metric("Volatilidad", f"{market_data.get('volatility', 0):.2%}")
             
-            with col3:
-                st.metric("SMA 10", f"${market_data.get('sma_10', 0):.2f}")
+            # Prediction
+            if analysis_result.get("model_prediction"):
+                pred = analysis_result["model_prediction"]
+                st.subheader("🤖 Predicción ML")
+                st.info(f"Estrategia: **{pred.get('strategy', 'UNKNOWN')}** | Confianza: **{pred.get('confidence', 0):.2%}**")
             
-            with col4:
-                st.metric("Volatilidad", f"{market_data.get('volatility', 0):.2%}")
-        
-        # Model prediction
-        if analysis_result.get("model_prediction"):
-            prediction = analysis_result["model_prediction"]
-            strategy = prediction.get("strategy", "UNKNOWN")
-            confidence = prediction.get("confidence", 0)
+            # AI Analysis
+            st.subheader("💡 Respuesta del Agente")
+            st.markdown(analysis_result.get("analysis", "No hay análisis disponible"))
             
-            st.subheader("🤖 Predicción del Modelo")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                strategy_color = "🟢" if strategy == "TOP" else "🔴"
-                st.markdown(f"**Estrategia:** {strategy_color} {strategy}")
-            
-            with col2:
-                st.markdown(f"**Confianza:** {confidence:.2%}")
-        
-        # AI Analysis
-        st.subheader("💡 Análisis con IA")
-        st.markdown(analysis_result.get("analysis", "No hay análisis disponible"))
-        
-        # Charts (if we have dataframe data)
-        # Note: In a real implementation, you'd fetch the full dataframe from the API
-        st.subheader("📈 Gráficos")
-        st.info("Los gráficos detallados se mostrarían aquí con datos históricos completos")
-        
-    else:
-        st.error(f"Error: {analysis_result.get('error', 'Error desconocido')}")
+        else:
+            st.error(f"Error: {analysis_result.get('error')}")
 
-else:
-    # Welcome message
-    st.info("👈 Selecciona un activo y configura los parámetros en la barra lateral, luego haz clic en 'Analizar'")
+with tab2:
+    st.header("Gestión de Portafolio")
     
-    # Example usage
-    st.header("Cómo usar")
-    st.markdown("""
-    1. **Selecciona un activo** de la lista desplegable
-    2. **Configura el horizonte temporal** (días de historial)
-    3. **Escribe tu consulta** o usa la predeterminada
-    4. **Haz clic en 'Analizar'** para obtener:
-       - Análisis técnico con indicadores (RSI, SMAs, volatilidad)
-       - Predicción del modelo ML (TOP/BOTTOM)
-       - Análisis semántico con IA Generativa
-       - Recomendaciones de inversión fundamentadas
-    """)
-    
-    st.header("Activos Soportados")
-    st.markdown("""
-    - **Criptomonedas**: Bitcoin (BTC), Ethereum (ETH)
-    - **ETFs**: SPY, QQQ, VTI
-    """)
+    # Add Asset Form
+    with st.form("add_asset_form"):
+        c1, c2, c3 = st.columns(3)
+        new_symbol = c1.text_input("Símbolo (e.g., BTC)")
+        new_qty = c2.number_input("Cantidad", min_value=0.01, step=0.01)
+        new_price = c3.number_input("Precio de Compra", min_value=0.1, step=0.1)
+        submitted = st.form_submit_button("Añadir Activo")
+        if submitted and new_symbol:
+            add_asset_to_portfolio(new_symbol, new_qty, new_price)
+            st.rerun()
+
+    # View Portfolio
+    portfolio = fetch_portfolio()
+    if "assets" in portfolio and portfolio["assets"]:
+        df_port = pd.DataFrame(portfolio["assets"])
+        st.dataframe(df_port, use_container_width=True)
+        
+        # Simple Pie Chart
+        if not df_port.empty:
+            fig = px.pie(df_port, values='quantity', names='symbol', title='Distribución de Activos (por cantidad)')
+            st.plotly_chart(fig)
+    else:
+        st.info("El portafolio está vacío. Añade activos arriba.")
+
+with tab3:
+    st.header("🛡️ Monitoreo de Data Drift")
+    if st.button("Chequear Drift Ahora"):
+        report = get_drift_report()
+        st.json(report)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("Predicciones del Modelo")
+            p_drift = report.get("prediction_drift", {})
+            if p_drift.get("drift_detected"):
+                st.error("⚠️ Drift Detectado en Predicciones!")
+            else:
+                st.success("✅ Predicciones Estables")
+            st.write(p_drift)
+            
+        with col2:
+            st.subheader("Acciones del Agente")
+            a_drift = report.get("action_drift", {})
+            if a_drift.get("drift_detected"):
+                st.warning("⚠️ Drift Detectado en Acciones!")
+            else:
+                st.success("✅ Acciones Estables")
+            st.write(a_drift)
 

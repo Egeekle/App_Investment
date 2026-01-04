@@ -46,8 +46,28 @@ class InvestmentAgent:
         def predict_strategy(market_data: dict) -> dict:
             """Predict investment strategy (TOP for buy, BOTTOM for sell) using ML model. Requires market_data dict."""
             return tools_instance.predict_strategy(market_data)
+
+        @tool
+        def get_portfolio() -> dict:
+            """Get the current user portfolio holdings."""
+            return tools_instance.get_portfolio()
+            
+        @tool
+        def add_to_portfolio(symbol: str, quantity: float, price: float) -> dict:
+            """Add an asset to the portfolio. Requires symbol, quantity, and purchase price."""
+            return tools_instance.add_to_portfolio(symbol, quantity, price)
+            
+        @tool
+        def remove_from_portfolio(symbol: str, quantity: float) -> dict:
+            """Remove an asset from the portfolio. Requires symbol and quantity."""
+            return tools_instance.remove_from_portfolio(symbol, quantity)
+            
+        @tool
+        def fetch_latest_news(category: str = "general") -> str:
+            """Fetch latest news and add to knowledge base. Category can be 'general' or 'crypto'."""
+            return tools_instance.fetch_latest_news(category)
         
-        return [get_market_data, get_news_sentiment, predict_strategy]
+        return [get_market_data, get_news_sentiment, predict_strategy, get_portfolio, add_to_portfolio, remove_from_portfolio, fetch_latest_news]
     
     def _build_graph(self) -> StateGraph:
         """Build the LangGraph state graph"""
@@ -91,12 +111,16 @@ Your capabilities:
 1. get_market_data: Get market data and technical indicators (RSI, SMAs, volatility) for a symbol
 2. get_news_sentiment: Search for relevant news and sentiment analysis from knowledge base
 3. predict_strategy: Predict investment strategies (TOP for buy, BOTTOM for sell) using ML model
+4. get_portfolio: Check current portfolio holdings
+5. add_to_portfolio / remove_from_portfolio: Manage portfolio assets
+6. fetch_latest_news: Refresh news database with latest market news
 
 When a user asks about an asset:
 1. First, call get_market_data to understand current technical indicators
-2. Then, call get_news_sentiment to get relevant context
-3. Use predict_strategy with the market_data to get ML prediction
-4. Synthesize all information into a comprehensive analysis
+2. If needed, check get_portfolio to see if user owns it
+3. Call get_news_sentiment to get relevant context
+4. Use predict_strategy with the market_data to get ML prediction
+5. Synthesize all information into a comprehensive analysis
 
 Provide clear, actionable insights combining technical analysis with market sentiment.
 Always use the tools to gather data before providing analysis."""

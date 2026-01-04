@@ -8,6 +8,8 @@ from src.data_ingestion.alpha_vantage_client import AlphaVantageClient
 from src.data_ingestion.technical_indicators import enrich_with_indicators
 from src.models.random_forest_model import RandomForestStrategyModel
 from src.rag.vector_store import VectorStore
+from src.portfolio.portfolio_manager import PortfolioManager
+from src.data_ingestion.news_client import NewsClient
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +22,16 @@ class AgentTools:
         coingecko_client: CoinGeckoClient,
         alpha_vantage_client: AlphaVantageClient,
         vector_store: VectorStore,
-        rf_model: RandomForestStrategyModel
+        rf_model: RandomForestStrategyModel,
+        portfolio_manager: PortfolioManager,
+        news_client: NewsClient
     ):
         self.coingecko_client = coingecko_client
         self.alpha_vantage_client = alpha_vantage_client
         self.vector_store = vector_store
         self.rf_model = rf_model
+        self.portfolio_manager = portfolio_manager
+        self.news_client = news_client
     
     def get_market_data(self, symbol: str, days: int = 30) -> Dict[str, Any]:
         """
@@ -178,6 +184,38 @@ class AgentTools:
             return {
                 "strategy": "UNKNOWN",
                 "confidence": 0.0,
+                "confidence": 0.0,
                 "error": str(e)
             }
+
+    def get_portfolio(self) -> Dict[str, Any]:
+        """Get current portfolio summary"""
+        return self.portfolio_manager.get_portfolio_summary()
+
+    def add_to_portfolio(self, symbol: str, quantity: float, price: float) -> Dict[str, Any]:
+        """Add asset to portfolio"""
+        return self.portfolio_manager.add_asset(symbol, quantity, price)
+
+    def remove_from_portfolio(self, symbol: str, quantity: float) -> Dict[str, Any]:
+        """Remove asset from portfolio"""
+        return self.portfolio_manager.remove_asset(symbol, quantity)
+
+    def fetch_latest_news(self, category: str = "general") -> str:
+        """Fetch latest news and add to knowledge base"""
+        try:
+            news_items = self.news_client.get_news(category=category)
+            if not news_items:
+                return "No news found."
+            
+            rag_docs = self.news_client.process_and_structure_for_rag(news_items)
+            
+            texts = [doc["page_content"] for doc in rag_docs]
+            metadatas = [doc["metadata"] for doc in rag_docs]
+            ids = [f"{doc['metadata']['url']}-{i}" for i, doc in enumerate(rag_docs)] # Simple ID generation
+            
+            self.vector_store.add_documents(texts, metadatas, ids)
+            return f"Successfully added {len(texts)} news items to the knowledge base."
+        except Exception as e:
+            logger.error(f"Error updating news: {e}")
+            return f"Error updating news: {e}"
 

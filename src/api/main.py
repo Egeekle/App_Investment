@@ -14,6 +14,9 @@ from src.data_ingestion.alpha_vantage_client import AlphaVantageClient
 from src.rag.vector_store import VectorStore
 from src.models.random_forest_model import RandomForestStrategyModel
 from src.rag.knowledge_base import initialize_knowledge_base
+from src.portfolio.portfolio_manager import PortfolioManager
+from src.data_ingestion.news_client import NewsClient
+from src.drift.drift_detector import DriftDetector
 from langchain_google_genai import ChatGoogleGenerativeAI
 import os
 from dotenv import load_dotenv
@@ -25,8 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 # Global variables for services
+# Global variables for services
 agent: Optional[InvestmentAgent] = None
 vector_store: Optional[VectorStore] = None
+portfolio_manager: Optional[PortfolioManager] = None
+drift_detector: Optional[DriftDetector] = None
+news_client: Optional[NewsClient] = None
 
 
 @asynccontextmanager
@@ -53,10 +60,13 @@ async def lifespan(app: FastAPI):
         )
         
         # Initialize vector store
-        vector_store = VectorStore(
-            chroma_db_path=os.getenv("CHROMA_DB_PATH", "./data/chroma_db")
-        )
-        initialize_knowledge_base(vector_store)
+        try:
+            vector_store = VectorStore(
+                chroma_db_path=os.getenv("CHROMA_DB_PATH", "./data/chroma_db")
+            )
+            initialize_knowledge_base(vector_store)
+        except Exception as e:
+            logger.error(f"Error initializing knowledge base: {e}. Continuing without it.")
         
         # Initialize ML model
         rf_model = RandomForestStrategyModel()
@@ -67,12 +77,20 @@ async def lifespan(app: FastAPI):
             logger.warning(f"Model not found at {model_path}. Using untrained model.")
         
         # Initialize tools
+        news_client = NewsClient()
+        portfolio_manager = PortfolioManager()
+        
         tools = AgentTools(
             coingecko_client=coingecko_client,
             alpha_vantage_client=alpha_vantage_client,
             vector_store=vector_store,
-            rf_model=rf_model
+            rf_model=rf_model,
+            portfolio_manager=portfolio_manager,
+            news_client=news_client
         )
+        
+        # Initialize Drift Detector
+        drift_detector = DriftDetector()
         
         # Initialize agent
         agent = InvestmentAgent(llm=llm, tools=tools)
@@ -132,6 +150,15 @@ class PriceResponse(BaseModel):
     volatility: Optional[float] = None
 
 
+class AddAssetRequest(BaseModel):
+    symbol: str
+    quantity: float
+    purchase_price: float
+
+class RemoveAssetRequest(BaseModel):
+    symbol: str
+    quantity: float
+
 # Endpoints
 @app.get("/health")
 async def health_check():
@@ -159,6 +186,13 @@ async def analyze_asset(request: AnalyzeRequest):
     
     try:
         result = agent.analyze(symbol=request.symbol, query=request.query)
+        
+        # Log for drift detection
+        if drift_detector and result.get("model_prediction"):
+            pred = result["model_prediction"]
+            confidence = pred.get("confidence", 0.0)
+            strategy = pred.get("strategy", "UNKNOWN")
+            drift_detector.update_reference(confidence, strategy)
         
         return AnalyzeResponse(
             symbol=result.get("symbol", request.symbol),
@@ -208,6 +242,64 @@ async def get_market_price(symbol: str, days: int = 30):
         raise
     except Exception as e:
         logger.error(f"Error in price endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/v1/portfolio")
+async def get_portfolio():
+    if portfolio_manager is None:
+        raise HTTPException(status_code=503, detail="Portfolio Manager not initialized")
+    return portfolio_manager.get_portfolio_summary()
+
+@app.post("/v1/portfolio/add")
+async def add_asset(request: AddAssetRequest):
+    if portfolio_manager is None:
+        raise HTTPException(status_code=503, detail="Portfolio Manager not initialized")
+    return portfolio_manager.add_asset(request.symbol, request.quantity, request.purchase_price)
+
+@app.post("/v1/portfolio/remove")
+async def remove_asset(request: RemoveAssetRequest):
+    if portfolio_manager is None:
+        raise HTTPException(status_code=503, detail="Portfolio Manager not initialized")
+    return portfolio_manager.remove_asset(request.symbol, request.quantity)
+
+@app.get("/v1/drift")
+async def get_drift_report():
+    if drift_detector is None:
+        raise HTTPException(status_code=503, detail="Drift Detector not initialized")
+    
+    # Run detection on current window vs reference (simplified: just return current stats or run a self-check)
+    # Using last 50 points as "current" and rest as reference for this demo
+    data = drift_detector.reference_data
+    preds = data.get("predictions", [])
+    actions = data.get("actions", [])
+    
+    if len(preds) > 20:
+        # Split last 20 as "current"
+        curr_preds = preds[-20:]
+        # ref_preds = preds[:-20] # In real scenario, reference is fixed training set.
+        
+        # For this demo, just compare last 20 vs all (proxy for reference)
+        pred_drift = drift_detector.detect_prediction_drift(curr_preds)
+        action_drift = drift_detector.detect_action_drift(actions[-20:])
+    else:
+        pred_drift = {"status": "Not enough data"}
+        action_drift = {"status": "Not enough data"}
+        
+    return {
+        "prediction_drift": pred_drift,
+        "action_drift": action_drift,
+        "total_samples": len(preds)
+    }
+
+@app.post("/v1/news/fetch")
+async def fetch_news(category: str = "general"):
+    if news_client is None or vector_store is None:
+         raise HTTPException(status_code=503, detail="Services not initialized")
+    
+    try:
+        msg = agent.tools.fetch_latest_news(category)
+        return {"message": msg}
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
